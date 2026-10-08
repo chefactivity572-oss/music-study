@@ -2,7 +2,7 @@ services:
   - type: web
     name: music-study
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
     envVars:
@@ -22,4 +22,4 @@ services:
           property: connectionString
 databases:
   - name: music-study-db
-    plan: starter
+    plan: free
