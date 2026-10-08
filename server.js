@@ -44,7 +44,7 @@ async function aiConference(topic,teachers){
 }
 async function main(q,r){
  try{
-  if(q.method==="GET"&&q.url==="/"){r.writeHead(200,{"Content-Type":"text/html; charset=utf-8",...sec});return r.end(fs.readFileSync(path.join(__dirname,"public/index.html")))}
+  if(q.method==="GET"&&q.url==="/"){r.writeHead(200,{"Content-Type":"text/html; charset=utf-8",...sec});return r.end(fs.readFileSync(path.join(__dirname,"index.html")))}
   if(q.method==="GET"&&q.url==="/health"){return send(r,200,{ok:true,service:"MUSIC STUDY",version:"23.0.0"})}
   if(q.method==="GET"&&q.url==="/api/me"){let id=await uid(q);return send(r,200,{authenticated:!!id,teacher:id?await teacher(id):null})}
   if(q.method==="POST"&&q.url==="/api/signup"){if(!limited(q,"signup")||!csrf(q))return send(r,429,{error:"しばらく待ってから再試行してください"});let b=await body(q),e=String(b.email||"").trim().toLowerCase(),p=b.password;if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)||typeof p!=="string"||p.length<10)return send(r,400,{error:"メールまたはパスワードが不正です"});if((await pool.query("SELECT 1 FROM users WHERE email=$1",[e])).rowCount)return send(r,409,{error:"登録済みです"});let u=await pool.query("INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id",[e,hash(p)]),t=tok();await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL '30 days')",[th(t),u.rows[0].id]);return send(r,201,{ok:true},{"Set-Cookie":cookie(t,2592000)})}
