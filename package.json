@@ -1,0 +1,14 @@
+{
+  "name": "music-study-v23-beta",
+  "version": "23.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}
