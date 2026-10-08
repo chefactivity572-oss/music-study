@@ -9,7 +9,7 @@ const attempts=new Map();
 const sec={
  "X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY",
  "Referrer-Policy":"strict-origin-when-cross-origin",
- "Content-Security-Policy":"default-src 'self';style-src 'self' 'unsafe-inline';script-src 'self';connect-src 'self';img-src 'self' data:",
+ "Content-Security-Policy":"default-src 'self';style-src 'self' 'unsafe-inline';script-src 'self' 'unsafe-inline';connect-src 'self';img-src 'self' data:",
  "Permissions-Policy":"camera=(),microphone=(),geolocation=()"
 };
 const send=(r,s,d,e={})=>{r.writeHead(s,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store",...sec,...e});r.end(JSON.stringify(d))};
