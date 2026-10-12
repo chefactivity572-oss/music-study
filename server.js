@@ -42,6 +42,23 @@ async function aiConference(topic,teachers){
  if(!rr.ok)throw Error("AI API error");const j=await rr.json();let s="";for(const o of(j.output||[]))for(const c of(o.content||[]))if(c.text)s+=c.text;
  try{return JSON.parse(s.replace(/^```json\s*|\s*```$/g,"").trim())}catch{return teachers.map(t=>({name:t.name,field:t.field,opinion:`${t.field}の視点で、根拠と反対説を確認します。`}))}
 }
+
+async function aiStudy(answer,question,subject,memory){
+ const fallback={feedback:"回答を受け取りました。結論を支える根拠と、反対の立場から見た弱点をもう一段整理しましょう。",counterargument:"その主張が成立しない条件・例外は？",nextQuestion:"その例外を踏まえても、あなたの結論は維持できますか。理由を説明してください。",scores:{thinking:3,evidence:2,counterargument:2,expression:3,analysis:2},traitHints:[],ai:false};
+ if(!process.env.OPENAI_API_KEY)return fallback;
+ const prompt=`あなたはMUSIC STUDYのAI先生です。日本語で、学習者を尊重しつつ具体的に指導してください。学習者の回答を採点者のように分析し、必ず一歩反論してください。\n教科・テーマ: ${String(subject||"未指定").slice(0,200)}\n直前の問い: ${String(question||"未指定").slice(0,500)}\n学習者の過去の記憶: ${JSON.stringify(Array.isArray(memory)?memory.slice(0,5):[]).slice(0,1200)}\n今回の回答: ${String(answer||"").slice(0,5000)}\nJSONオブジェクトのみで返す。形式: {"feedback":"具体的な講評(120字以内)","counterargument":"一歩反論の問い(80字以内)","nextQuestion":"次の問い(100字以内)","scores":{"thinking":0,"evidence":0,"counterargument":0,"expression":0,"analysis":0},"traitHints":["深掘り型"など最大2個]}. 各scoreは0〜5の整数。根拠のない断定を避け、回答に書かれていないことを捏造しない。`;
+ try{
+  const rr=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.OPENAI_MODEL||"gpt-5.6-luna",input:prompt})});
+  if(!rr.ok){console.error("OpenAI study status",rr.status);return fallback;}
+  const j=await rr.json();let out=String(j.output_text||"");if(!out){for(const o of(j.output||[]))for(const c of(o.content||[]))if(c.text)out+=c.text;}
+  const clean=out.replace(/^```(?:json)?\s*|\s*```$/g,"").trim();const x=JSON.parse(clean);
+  const scoreKeys=["thinking","evidence","counterargument","expression","analysis"];
+  const scores={};for(const k of scoreKeys)scores[k]=Math.max(0,Math.min(5,Math.round(Number(x.scores?.[k])||0)));
+  const allowed=["深掘り型","反論型","根拠重視","対話型","採点者型"];
+  return {feedback:String(x.feedback||fallback.feedback).slice(0,500),counterargument:String(x.counterargument||fallback.counterargument).slice(0,300),nextQuestion:String(x.nextQuestion||fallback.nextQuestion).slice(0,300),scores,traitHints:(Array.isArray(x.traitHints)?x.traitHints:[]).filter(t=>allowed.includes(t)).slice(0,2),ai:true};
+ }catch(e){console.error("AI study fallback",e.message);return fallback;}
+}
+
 async function main(q,r){
  try{
   if(q.method==="GET"&&q.url==="/"){r.writeHead(200,{"Content-Type":"text/html; charset=utf-8",...sec});return r.end(fs.readFileSync(path.join(__dirname,"index.html")))}
@@ -51,11 +68,18 @@ async function main(q,r){
   if(q.method==="POST"&&q.url==="/api/login"){if(!limited(q,"login")||!csrf(q))return send(r,429,{error:"しばらく待ってから再試行してください"});let b=await body(q),e=String(b.email||"").trim().toLowerCase(),u=await pool.query("SELECT * FROM users WHERE email=$1",[e]);if(!u.rowCount||typeof b.password!=="string"||!verify(b.password,u.rows[0].password_hash))return send(r,401,{error:"ログイン情報が正しくありません"});let t=tok();await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL '30 days')",[th(t),u.rows[0].id]);return send(r,200,{ok:true},{"Set-Cookie":cookie(t,2592000)})}
   if(q.method==="POST"&&q.url==="/api/logout"){if(!csrf(q))return send(r,403,{error:"CSRF検証に失敗しました"});let m=(q.headers.cookie||"").match(/(?:^|;\s*)ms_session=([^;]+)/);if(m)await pool.query("DELETE FROM sessions WHERE token_hash=$1",[th(m[1])]);return send(r,200,{ok:true},{"Set-Cookie":cookie("",0)})}
   if(q.method==="PUT"&&q.url==="/api/teacher"){let id=await uid(q);if(!id)return send(r,401,{error:"ログインが必要です"});if(!csrf(q))return send(r,403,{error:"CSRF検証に失敗しました"});let b=await body(q),t=b.teacher;if(!t||typeof t!=="object")return send(r,400,{error:"先生データが必要です"});t.name=String(t.name||"先生").slice(0,60);t.xp=Math.max(0,Math.min(Number(t.xp)||0,1000000));t.level=level(t.xp);t.dna=Array.isArray(t.dna)?t.dna.slice(0,30).map(x=>String(x).slice(0,50)):[];t.memory=Array.isArray(t.memory)?t.memory.slice(0,50):[];t.traits=t.traits&&typeof t.traits==="object"?t.traits:{};await pool.query(`INSERT INTO teachers(user_id,teacher_json) VALUES($1,$2::jsonb) ON CONFLICT(user_id) DO UPDATE SET teacher_json=EXCLUDED.teacher_json,updated_at=NOW()`,[id,JSON.stringify(t)]);return send(r,200,{teacher:t})}
+  if(q.method==="POST"&&q.url==="/api/study"){
+   let id=await uid(q);if(!id)return send(r,401,{error:"ログインが必要です"});if(!csrf(q))return send(r,403,{error:"CSRF検証に失敗しました"});if(!limited(q,"study"))return send(r,429,{error:"少し待ってから再試行してください"});
+   let b=await body(q),answer=String(b.answer||"").trim();if(!answer)return send(r,400,{error:"回答を書いてください"});if(answer.length>5000)return send(r,413,{error:"回答は5000文字以内にしてください"});
+   let t=await teacher(id);let result=await aiStudy(answer,String(b.question||t?.firstQuestion||""),String(b.subject||t?.title||""),t?.memory||[]);
+   await pool.query("INSERT INTO learning_events(user_id,type,payload_json) VALUES($1,$2,$3::jsonb)",[id,"study",JSON.stringify({answer:answer.slice(0,1000),feedback:result.feedback,counterargument:result.counterargument,scores:result.scores,ai:result.ai})]);
+   return send(r,200,result);
+  }
   if(q.method==="POST"&&q.url==="/api/event"){let id=await uid(q);if(!id)return send(r,401,{error:"ログインが必要です"});if(!csrf(q))return send(r,403,{error:"CSRF検証に失敗しました"});let b=await body(q);await pool.query("INSERT INTO learning_events(user_id,type,payload_json) VALUES($1,$2,$3::jsonb)",[id,String(b.type||"event").slice(0,60),JSON.stringify(b.payload||{})]);return send(r,201,{ok:true})}
   if(q.method==="GET"&&q.url==="/api/history"){let id=await uid(q);if(!id)return send(r,401,{error:"ログインが必要です"});let x=await pool.query("SELECT type,payload_json,created_at FROM learning_events WHERE user_id=$1 ORDER BY id DESC LIMIT 50",[id]);return send(r,200,{events:x.rows})}
   if(q.method==="POST"&&q.url==="/api/conference"){let id=await uid(q);if(!id)return send(r,401,{error:"ログインが必要です"});if(!csrf(q))return send(r,403,{error:"CSRF検証に失敗しました"});let b=await body(q),topic=String(b.topic||"").slice(0,500),ts=[{name:"ソラ",field:"生物"},{name:"カイ",field:"法律"},{name:"ユウ",field:"医学"},{name:"ミナ",field:"数学"}],opinions=await aiConference(topic,ts);await pool.query("INSERT INTO learning_events(user_id,type,payload_json) VALUES($1,$2,$3::jsonb)",[id,"conference",JSON.stringify({topic,opinions})]);return send(r,200,{topic,opinions})}
   r.writeHead(404,{...sec,"Content-Type":"text/plain; charset=utf-8"});r.end("Not Found")
  }catch(e){console.error(e);send(r,500,{error:"サーバー内部エラー"})}
 }
-init().then(()=>http.createServer(main).listen(PORT,()=>console.log("MUSIC STUDY v22 listening on "+PORT))).catch(e=>{console.error(e);process.exit(1)});
+init().then(()=>http.createServer(main).listen(PORT,()=>console.log("MUSIC STUDY v24 integrated listening on "+PORT))).catch(e=>{console.error(e);process.exit(1)});
 process.on("SIGTERM",async()=>{await pool.end();process.exit(0)});
