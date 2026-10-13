@@ -62,7 +62,7 @@ async function aiStudy(answer,question,subject,memory){
 async function main(q,r){
  try{
   if(q.method==="GET"&&q.url==="/"){r.writeHead(200,{"Content-Type":"text/html; charset=utf-8",...sec});return r.end(fs.readFileSync(path.join(__dirname,"index.html")))}
-  if(q.method==="GET"&&q.url==="/health"){return send(r,200,{ok:true,service:"MUSIC STUDY",version:"23.0.0"})}
+  if(q.method==="GET"&&q.url==="/health"){return send(r,200,{ok:true,service:"MUSIC STUDY",version:"25.0.0"})}
   if(q.method==="GET"&&q.url==="/api/me"){let id=await uid(q);return send(r,200,{authenticated:!!id,teacher:id?await teacher(id):null})}
   if(q.method==="POST"&&q.url==="/api/signup"){if(!limited(q,"signup")||!csrf(q))return send(r,429,{error:"しばらく待ってから再試行してください"});let b=await body(q),e=String(b.email||"").trim().toLowerCase(),p=b.password;if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)||typeof p!=="string"||p.length<10)return send(r,400,{error:"メールまたはパスワードが不正です"});if((await pool.query("SELECT 1 FROM users WHERE email=$1",[e])).rowCount)return send(r,409,{error:"登録済みです"});let u=await pool.query("INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id",[e,hash(p)]),t=tok();await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL '30 days')",[th(t),u.rows[0].id]);return send(r,201,{ok:true},{"Set-Cookie":cookie(t,2592000)})}
   if(q.method==="POST"&&q.url==="/api/login"){if(!limited(q,"login")||!csrf(q))return send(r,429,{error:"しばらく待ってから再試行してください"});let b=await body(q),e=String(b.email||"").trim().toLowerCase(),u=await pool.query("SELECT * FROM users WHERE email=$1",[e]);if(!u.rowCount||typeof b.password!=="string"||!verify(b.password,u.rows[0].password_hash))return send(r,401,{error:"ログイン情報が正しくありません"});let t=tok();await pool.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+INTERVAL '30 days')",[th(t),u.rows[0].id]);return send(r,200,{ok:true},{"Set-Cookie":cookie(t,2592000)})}
@@ -81,5 +81,5 @@ async function main(q,r){
   r.writeHead(404,{...sec,"Content-Type":"text/plain; charset=utf-8"});r.end("Not Found")
  }catch(e){console.error(e);send(r,500,{error:"サーバー内部エラー"})}
 }
-init().then(()=>http.createServer(main).listen(PORT,()=>console.log("MUSIC STUDY v24 integrated listening on "+PORT))).catch(e=>{console.error(e);process.exit(1)});
+init().then(()=>http.createServer(main).listen(PORT,()=>console.log("MUSIC STUDY v25 AI study listening on "+PORT))).catch(e=>{console.error(e);process.exit(1)});
 process.on("SIGTERM",async()=>{await pool.end();process.exit(0)});
